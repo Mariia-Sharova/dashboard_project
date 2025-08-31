@@ -1,10 +1,3 @@
-#streamlit==1.49.0
-#pandas==1.5.3
-#numpy==1.24.3
-#plotly==5.9.0
-#matplotlib==3.7.1
-#seaborn==0.12.2
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
