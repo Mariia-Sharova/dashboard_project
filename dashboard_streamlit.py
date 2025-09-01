@@ -243,6 +243,107 @@ def main():
     st.pyplot(fig)
 
 
+    # 📈 АНАЛИЗ СЕЗОННОСТИ И ТРЕНДОВ
+    st.header("📈 Анализ сезонности и трендов")
+    
+    # Создаем дополнительные колонки для анализа
+    df['created_date_only'] = df['created_date'].dt.date
+    df['created_week'] = df['created_date'].dt.isocalendar().week
+    df['created_month'] = df['created_date'].dt.month
+    df['created_day_of_week'] = df['created_date'].dt.day_name()
+    df['created_hour'] = df['created_date'].dt.hour
+    
+    # 1. Еженедельный объем тикетов (последние 6 недель)
+    st.subheader("Еженедельный объем созданных тикетов")
+    
+    weekly_volume = df.resample('W', on='created_date')['ticket_id'].count().tail(6)
+    weekly_labels = weekly_volume.index.strftime('%Y-%m-%d')
+    
+    fig_weekly, ax_weekly = plt.subplots(figsize=(10, 6))
+    ax_weekly = sns.lineplot(x=weekly_labels, y=weekly_volume.values, 
+                           marker='o', markersize=8, linewidth=2.5,
+                           color='steelblue', ax=ax_weekly)
+    
+    ax_weekly.set_title('Еженедельный объем созданных тикетов (последние 6 недель)\n', fontsize=16)
+    ax_weekly.set_xlabel('\nНеделя')
+    ax_weekly.set_ylabel('Количество тикетов\n')
+    ax_weekly.grid(True, alpha=0.3)
+    
+    # Подписываем значения точек
+    for i, (x, y) in enumerate(zip(weekly_labels, weekly_volume.values)):
+        ax_weekly.annotate(f'{int(y)}', 
+                          (x, y),
+                          xytext=(0, 10), 
+                          textcoords='offset points',
+                          ha='center', va='bottom', 
+                          fontsize=10, fontweight='bold')
+    
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    st.pyplot(fig_weekly)
+    
+    # 2. Ежемесячный объем тикетов
+    st.subheader("Ежемесячный объем созданных тикетов")
+    
+    monthly_volume = df.resample('M', on='created_date')['ticket_id'].count()
+    monthly_labels = monthly_volume.index.strftime('%Y-%m')
+    
+    fig_monthly, ax_monthly = plt.subplots(figsize=(10, 6))
+    ax_monthly = sns.lineplot(x=monthly_labels, y=monthly_volume.values, 
+                            marker='s', markersize=8, linewidth=2.5,
+                            color='darkorange', ax=ax_monthly)
+    
+    ax_monthly.set_title('Ежемесячный объем созданных тикетов\n', fontsize=16)
+    ax_monthly.set_xlabel('\nМесяц')
+    ax_monthly.set_ylabel('Количество тикетов\n')
+    ax_monthly.grid(True, alpha=0.3)
+    
+    # Подписываем значения точек
+    for i, (x, y) in enumerate(zip(monthly_labels, monthly_volume.values)):
+        ax_monthly.annotate(f'{int(y)}', 
+                           (x, y),
+                           xytext=(0, 10), 
+                           textcoords='offset points',
+                           ha='center', va='bottom', 
+                           fontsize=10, fontweight='bold')
+    
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    st.pyplot(fig_monthly)
+    
+    # 3. Распределение тикетов по времени суток
+    st.subheader("Распределение тикетов по времени суток")
+    
+    time_intervals = {
+        'Ночь (0-6)': df[df['created_hour'].between(0, 6)]['ticket_id'].count(),
+        'Утро (7-10)': df[df['created_hour'].between(7, 10)]['ticket_id'].count(),
+        'День (11-18)': df[df['created_hour'].between(11, 17)]['ticket_id'].count(),
+        'Вечер (19-23)': df[df['created_hour'].between(19, 23)]['ticket_id'].count()
+    }
+    
+    fig_time, ax_time = plt.subplots(figsize=(8, 6))
+    colors = ['lightpink', 'lightblue', 'lightgreen', 'lightyellow']
+    
+    wedges, texts, autotexts = ax_time.pie(
+        time_intervals.values(), 
+        labels=time_intervals.keys(), 
+        autopct='%1.1f%%', 
+        colors=colors,
+        startangle=90
+    )
+    
+    ax_time.set_title('Распределение тикетов по времени суток\n', fontsize=16)
+    
+    # Увеличиваем шрифт для подписей
+    for text in texts:
+        text.set_fontsize(10)
+    for autotext in autotexts:
+        autotext.set_fontsize(10)
+        autotext.set_fontweight('bold')
+    
+    plt.tight_layout()
+    st.pyplot(fig_time)
+
     # 🔄 АНАЛИЗ ПОВТОРНЫХ ОБРАЩЕНИЙ
     st.header("🔄 Анализ переоткрытых тикетов")
     
@@ -401,7 +502,187 @@ def main():
     else:
         st.warning("Данные для анализа повторных обращений недоступны")
 
+    # 📊 АНАЛИЗ ВРЕМЕНИ В СТАТУСАХ
+    st.header("📊 Анализ времени в статусах")
+    
+    # Определяем статусы
+    closed_statuses = ['Выполнено', 'Отменен']
+    active_statuses = ['Ожидает обработки', 'В работе', 'В разработке', 'На согласовании', 'Ожидается ответ пользователя']
+    
+    # Берем только тикеты в финальных статусах
+    closed_tickets = df_status[df_status['status'].isin(closed_statuses)]['ticket_id'].unique()
+    df_closed = df_status[df_status['ticket_id'].isin(closed_tickets)].copy()
+    
+    # Сортируем и рассчитываем время между сменами статусов
+    df_closed = df_closed.sort_values(['ticket_id', 'changed_date'])
+    df_closed['next_changed_date'] = df_closed.groupby('ticket_id')['changed_date'].shift(-1)
+    
+    # Для последней записи каждого тикета используем максимальную дату
+    max_dates = df_closed.groupby('ticket_id')['changed_date'].max()
+    for ticket_id in closed_tickets:
+        last_idx = df_closed[df_closed['ticket_id'] == ticket_id].index[-1]
+        df_closed.loc[last_idx, 'next_changed_date'] = max_dates[ticket_id]
+    
+    # Фильтруем только активные статусы и рассчитываем время
+    df_active_times = df_closed[df_closed['status'].isin(active_statuses)].copy()
+    df_active_times['time_in_status'] = (df_active_times['next_changed_date'] - df_active_times['changed_date']).dt.total_seconds() / 3600
+    
+    # Суммируем время по активным статусам
+    time_per_active_status = df_active_times.groupby('status')['time_in_status'].sum()
+    total_active_time = time_per_active_status.sum()
+    percentage_time_per_status = (time_per_active_status / total_active_time * 100).round(2)
+    
+    # пайчарт
+    st.subheader("Распределение времени по активным статусам")
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    colors = plt.cm.Pastel1(range(len(percentage_time_per_status)))
+    
+    wedges, texts, autotexts = ax.pie(percentage_time_per_status.values, 
+                                      labels=percentage_time_per_status.index,
+                                      autopct='%1.1f%%', 
+                                      colors=colors,
+                                      startangle=90)
+    
+    ax.set_title('Распределение времени по активным статусам закрытых тикетов', 
+                 fontsize=16, fontweight='bold', pad=20)
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+
+    # 👤📈 KPI ИСПОЛНИТЕЛЕЙ
+    st.header("👤📈 KPI исполнителей")
+    
+    # Процент тикетов, решенных тем же исполнителем
+    st.subheader("Процент тикетов, решенных тем же исполнителем")
+    
+    # Фильтруем данные где first_assignee тот же, что и last_assignee
+    same_assignee_tickets = df[df['first_assignee'] == df['last_assignee']]
+    ticket_count_per_assignee = same_assignee_tickets['first_assignee'].value_counts()
+    
+    # Общее количество тикетов по каждому исполнителю
+    total_tickets_per_assignee = df['first_assignee'].value_counts()
+    
+    # Вычисляем процентное соотношение
+    percentage_solved_same = (ticket_count_per_assignee / total_tickets_per_assignee) * 100
+    percentage_solved_same = percentage_solved_same.sort_values(ascending=False)
+    
+    # Создаем график
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # градиент серого
+    n_bars = len(percentage_solved_same)
+    gray_colors = [f'#{i:02x}{i:02x}{i:02x}' for i in np.linspace(180, 100, n_bars).astype(int)]
+    
+    bars = ax.bar(percentage_solved_same.index, percentage_solved_same.values, 
+                 color=gray_colors, edgecolor='black', linewidth=1, alpha=0.8)
+    
+    # Настройки графика
+    ax.set_title('Процент тикетов, решенных тем же исполнителем\n', fontsize=16, pad=20)
+    ax.set_xlabel('Исполнитель', fontsize=12)
+    ax.set_ylabel('% решенных самостоятельно\n', fontsize=12)
+    ax.set_xticklabels(percentage_solved_same.index, rotation=45, ha='right')
+    ax.grid(axis='y', alpha=0.3)
+    
+    # Добавляем значения на столбцы
+    for bar, value in zip(bars, percentage_solved_same.values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                f'{value:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    
+    ax.grid(False)
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # Медианное время решения по исполнителям
+    st.subheader("Медианное время решения тикетов по исполнителям")
+    
+    # Рассчитываем медианное время решения для тикетов, где first_assignee = last_assignee
+    same_assignee_tickets = df[df['first_assignee'] == df['last_assignee']]
+    median_resolution_time = same_assignee_tickets.groupby('first_assignee')['resolution_in_hours'].median()
+    median_resolution_time = median_resolution_time.sort_values(ascending=True)  # Сортируем для лучшего отображения
+    
+    # отдельный DataFrame для удобства
+    median_resolution_df = pd.DataFrame({
+        'Исполнитель': median_resolution_time.index,
+        'median_time': median_resolution_time.values
+    }).sort_values('median_time', ascending=True)
+    
+    # барплот
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # градиент серого
+    n_bars = len(median_resolution_df)
+    gray_colors = [f'#{i:02x}{i:02x}{i:02x}' for i in np.linspace(180, 100, n_bars).astype(int)]
+    
+    bars = ax.barh(median_resolution_df['Исполнитель'], median_resolution_df['median_time'],
+                  color=gray_colors, edgecolor='black', linewidth=1, alpha=0.8)
+    
+    # Настройки
+    ax.set_title('Медианное время решения тикетов по исполнителям\n(first_assignee = last_assignee)', 
+                fontsize=16, pad=20, fontweight='bold')
+    ax.set_xlabel('Медианное время решения (часы)', fontsize=12)
+    ax.set_ylabel('Исполнитель', fontsize=12)
+    ax.grid(axis='x', alpha=0.3)
+    
+    # Добавляем значения на столбцы
+    for bar, value in zip(bars, median_resolution_df['median_time']):
+        ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2,
+               f'{value:.1f}ч', ha='left', va='center', fontsize=10, fontweight='bold')
+    
+    ax.grid(False)
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # Эффективность по меткам исполнителя
+    st.subheader("Распределение меток по исполнителям")
+    
+    same_assignee_tickets = df[df['first_assignee'] == df['last_assignee']]
+
+    # Топ меток по отфильтрованным данным
+    top_n_tags = same_assignee_tickets['tag'].value_counts().head(15).index.tolist()
+
+    # Группируем отфильтрованные данные по исполнителям и меткам
+    grouped_data = same_assignee_tickets.groupby(['first_assignee', 'tag']).size().unstack(fill_value=0)
+
+    # Оставляем только топ метки, остальные определим в "Other"
+    available_top_tags = [tag for tag in top_n_tags if tag in grouped_data.columns]
+    grouped_data_top = grouped_data[available_top_tags].copy()
+
+    # Добавляем колонку Other для остальных меток
+    other_tags = [col for col in grouped_data.columns if col not in available_top_tags]
+    if other_tags:
+        grouped_data_top['Other'] = grouped_data[other_tags].sum(axis=1)
+    else:
+        grouped_data_top['Other'] = 0
+
+    # Сортируем исполнителей по общему количеству тикетов
+    grouped_data_top = grouped_data_top.loc[grouped_data_top.sum(axis=1).sort_values(ascending=False).index]
+
+    # график
+    fig, ax = plt.subplots(figsize=(14, 10))
+
+    # Цветовая карта
+    colors = plt.cm.Set3(np.linspace(0, 1, len(grouped_data_top.columns)))
+    cmap = ListedColormap(colors)
+
+    # барплот с накоплением
+    bars = grouped_data_top.plot(kind='barh', stacked=True, ax=ax, colormap=cmap, alpha=0.8)
+
+    ax.set_title('Распределение метки по исполнителям\n(first_assignee = last_assignee)', 
+                 fontsize=16, pad=20, fontweight='bold')
+    ax.set_xlabel('Количество тикетов', fontsize=12)
+    ax.set_ylabel('Исполнитель', fontsize=12)
+    ax.tick_params(axis='y', labelsize=10)
+    ax.grid(axis='x', alpha=0.3)
+
+    # Легенду выносим справа
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., 
+              title='Метки (tags)', title_fontsize=11, fontsize=10)
+
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.8)  # Место для легенды
+    st.pyplot(fig)
+
 #вход в программу        
 if __name__ == "__main__":
     main()
-
